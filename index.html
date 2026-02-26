@@ -395,6 +395,7 @@ textarea{resize:vertical;min-height:160px;font-size:12px;line-height:1.6}
     <button class="step-btn" onclick="goPanel('step7')" id="sb-step7"><div class="step-num">7</div><div><div class="step-label">맛있게 먹는 법</div><div class="step-sublabel">STEP 7 — 섹션 6</div></div></button>
     <button class="step-btn" onclick="goPanel('step8')" id="sb-step8"><div class="step-num">8</div><div><div class="step-label">구입처·가격 정보</div><div class="step-sublabel">STEP 8 — 섹션 7</div></div></button>
     <button class="step-btn" onclick="goPanel('step9')" id="sb-step9"><div class="step-num">9</div><div><div class="step-label">FAQ·요약·마무리</div><div class="step-sublabel">STEP 9 — 완성</div></div></button>
+    <button class="step-btn" onclick="goPanel('extra')" id="sb-extra"><div class="step-num">📋</div><div><div class="step-label">부가 정보</div><div class="step-sublabel">SEO·태그·이미지 가이드</div></div></button>
     <button class="step-btn" onclick="goPanel('compile');updateCompileChecklist()" id="sb-compile"><div class="step-num">✓</div><div><div class="step-label">최종 완성본</div><div class="step-sublabel">전체 HTML 합치기</div></div></button>
   </aside>
 
@@ -452,6 +453,28 @@ textarea{resize:vertical;min-height:160px;font-size:12px;line-height:1.6}
       </div>
       <div id="compile-result"></div>
     </div>
+
+    <!-- 부가 정보 패널 -->
+    <div class="panel" id="panel-extra">
+      <div class="panel-title">📋 부가 정보</div>
+      <div class="panel-desc">블로그 발행에 필요한 SEO 정보·추천 태그·이미지 가이드예요. HTML 본문에는 포함되지 않아요.<br>STEP 9 생성 후 아래에 자동으로 표시돼요.</div>
+      <div id="extra-panel-empty" class="alert alert-warn" style="margin-bottom:16px">⏳ STEP 9를 먼저 생성해주세요. 생성이 완료되면 여기에 자동으로 표시돼요.</div>
+      <div id="extra-panel-content" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-orange btn-lg" onclick="copyExtraInfo()">📋 전체 복사</button>
+          <button class="btn btn-secondary" onclick="generateExtraInfo()">🔄 다시 생성</button>
+        </div>
+        <div class="result-box">
+          <div class="result-header">
+            <div class="result-title">부가 정보 내용</div>
+          </div>
+          <div class="result-content">
+            <div id="extra-info-body" style="padding:20px 22px;font-size:13px;line-height:2;color:#333;white-space:pre-wrap;font-family:'Noto Sans KR',sans-serif;min-height:200px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="loading" id="extra-loading" style="display:none"><div class="spinner"></div> 부가 정보를 생성하고 있어요...</div>
+    </div>
   </main>
 </div>
 
@@ -483,6 +506,7 @@ let config = {};
 let selectedColor = 2;
 let results = {};
 let htmlResults = {};
+let extraResults = {};
 let currentEditStep = null;
 let currentImageStep = null;
 let currentLinkStep = null;
@@ -575,7 +599,11 @@ async function autoRunAllSteps() {
     }
   }
   autoRunning = false;
-  showToast('🎉 모든 STEP 자동 생성 완료! 최종 완성본을 확인하세요.');
+  // STEP 1~9 완료 후 부가 정보 자동 생성
+  showToast('📋 부가 정보를 생성하고 있어요...');
+  goPanel('extra');
+  await generateExtraInfo();
+  showToast('🎉 모든 STEP + 부가 정보 생성 완료!');
   setTimeout(() => { goPanel('compile'); updateCompileChecklist(); }, 1000);
 }
 
@@ -688,6 +716,15 @@ function extractHTML(rawText) {
   return m ? m[1].trim() : '';
 }
 
+// HTML 코드 블록 이후의 부가 정보 텍스트 추출
+function extractExtraInfo(rawText) {
+  // 마지막 ``` 이후의 텍스트를 부가 정보로 추출
+  const lastCodeEnd = rawText.lastIndexOf('```');
+  if(lastCodeEnd === -1) return '';
+  const after = rawText.slice(lastCodeEnd + 3).trim();
+  return after;
+}
+
 // ============================================================
 // GENERATE STEP
 // ============================================================
@@ -711,6 +748,9 @@ async function generateStep(stepId) {
     renderResult(stepId, rawText, htmlCode);
     markSidebarDone(stepId);
     if(regenBtn) regenBtn.style.display = 'inline-flex';
+    if(stepId === 'step9') {
+      renderExtraInfoPanel();
+    }
   } catch(err) {
     resultEl.innerHTML = `<div class="alert alert-error">❌ 오류: ${err.message}<br>잠시 후 다시 시도해주세요.</div>`;
     progEl.style.width = '0%';
@@ -727,7 +767,6 @@ function regenerateStep(stepId) {
 // ============================================================
 function renderResult(stepId, rawText, htmlCode) {
   const resultEl = document.getElementById('result-'+stepId);
-  const previewDoc = buildPreviewDoc(htmlCode);
   resultEl.innerHTML = `
     <div class="toolbar">
       <span class="toolbar-label">섹션 편집</span>
@@ -764,7 +803,6 @@ function renderResult(stepId, rawText, htmlCode) {
     </div>
     <div class="alert alert-success">✅ 생성 완료! 툴바에서 수정·이미지·링크 삽입이 가능해요.</div>
   `;
-  // innerHTML 삽입 후 iframe에 blob URL로 렌더링
   if(htmlCode) {
     const iframe = document.getElementById('iframe-'+stepId);
     writeIframe(iframe, htmlCode);
@@ -801,6 +839,98 @@ function switchTab(stepId, tab) {
   if(tabs) tabs.querySelectorAll('.tab-btn').forEach((b,i) => {
     b.classList.toggle('active', ['preview','code','raw'][i]===tab);
   });
+}
+
+function copyExtraInfo() {
+  const text = extraResults['step9'] || '';
+  if(!text) { showToast('⚠️ 부가 정보가 없어요. STEP 9를 먼저 생성해주세요.'); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => showToast('✅ 부가 정보가 클립보드에 복사됐어요!')).catch(() => copyFallback(text));
+  } else copyFallback(text);
+}
+
+function renderExtraInfoPanel() {
+  const text = extraResults['step9'] || '';
+  const empty = document.getElementById('extra-panel-empty');
+  const content = document.getElementById('extra-panel-content');
+  const body = document.getElementById('extra-info-body');
+  const sideBtn = document.getElementById('sb-extra');
+  if(!body) return;
+  if(!text) {
+    if(empty) empty.style.display = 'block';
+    if(content) content.style.display = 'none';
+    return;
+  }
+  body.textContent = text;
+  if(empty) empty.style.display = 'none';
+  if(content) content.style.display = 'block';
+  if(sideBtn) sideBtn.classList.add('done');
+}
+
+async function generateExtraInfo() {
+  if(!config.ingredient) { alert('먼저 기본 설정에서 재료명을 입력해주세요!'); return; }
+  const loadingEl = document.getElementById('extra-loading');
+  const empty = document.getElementById('extra-panel-empty');
+  const content = document.getElementById('extra-panel-content');
+  if(loadingEl) loadingEl.style.display = 'flex';
+  if(empty) empty.style.display = 'none';
+  if(content) content.style.display = 'none';
+  try {
+    const rawText = await callGemini(getSystemPrompt(), getExtraInfoPrompt(), 4000);
+    extraResults['step9'] = rawText.trim();
+    renderExtraInfoPanel();
+    showToast('✅ 부가 정보 생성 완료!');
+  } catch(err) {
+    if(empty) { empty.className = 'alert alert-error'; empty.textContent = '❌ 오류: ' + err.message; empty.style.display = 'block'; }
+  }
+  if(loadingEl) loadingEl.style.display = 'none';
+}
+
+function getExtraInfoPrompt() {
+  const i = config.ingredient, k = config.keyword;
+  return `아래 항목을 순서대로 작성해주세요. HTML 없이 텍스트로만 출력하세요.
+
+■ 메타디스크립션 (150자 이내, 포커스 키워드 포함)
+[150자 이내로 작성]
+
+■ 추천 태그 (20개, 쉼표 구분)
+#${k} #${i}효능 #${i}부작용 ... (총 20개)
+
+■ 대표 이미지 생성 프롬프트 (영문)
+"[${i}의 신선하고 풍성한 이미지를 묘사하는 상세한 영문 프롬프트]"
+
+■ SEO 최적화 제목 제안 (5개)
+※ 모든 제목은 "${i}의 효능과 부작용"으로 시작
+※ 공백 포함 45자 이상 55자 이내 (작성 후 글자수 직접 세어 표기, 45자 미만이면 재작성)
+1. ... → ○○자
+2. ... → ○○자
+3. ... → ○○자
+4. ... → ○○자
+5. ... → ○○자
+
+■ 참고 인용 출처
+[출처 URL 1]
+[출처 URL 2]
+[출처 URL 3]
+[출처 URL 4]
+[출처 URL 5]
+
+■ 맞춤 퍼머링크 제안 (영문 소문자-하이픈)
+[permalink-1]
+[permalink-2]
+[permalink-3]
+
+■ 섹션별 이미지 정보 (표 형식)
+섹션 | 섹션 제목 | 이미지 생성 프롬프트(영문) | 파일명(영문소문자-하이픈.jpg) | ALT 텍스트(한글 20자 내외)
+대표 이미지 | 글 전체 대표 썸네일 | Fresh ${i} on wooden cutting board, natural light, top view, professional food photography, 4k | ${i.toLowerCase().replace(/\s+/g,'-')}-main-thumbnail.jpg | ${i} 효능과 부작용 대표 이미지
+섹션 1 | ${i}이란 무엇인가요? | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-origin-history.jpg | ${i} 원산지와 역사 이미지
+섹션 2 | 영양 성분과 효능 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-nutrition-benefits.jpg | ${i} 영양 성분과 효능 이미지
+섹션 3 | 이런 분들께 특히 좋아요 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-recommended-for.jpg | ${i} 추천 대상 이미지
+섹션 4 | 부작용과 주의사항 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-side-effects-caution.jpg | ${i} 부작용 주의사항 이미지
+섹션 5 | 제철과 고르는 법·보관법 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-how-to-choose-store.jpg | ${i} 고르는 법 보관법 이미지
+섹션 6 | 맛있게 먹는 법·활용 요리 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-recipe-cooking.jpg | ${i} 레시피 요리 이미지
+섹션 7 | 구입처와 가격 정보 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-where-to-buy.jpg | ${i} 구입처 가격 이미지
+섹션 8 | 자주 묻는 질문 | [구체적 영문 프롬프트] | ${i.toLowerCase().replace(/\s+/g,'-')}-faq-questions.jpg | ${i} 자주 묻는 질문 이미지`;
 }
 
 // ============================================================
