@@ -541,6 +541,7 @@ textarea{resize:vertical;min-height:160px;font-size:12px;line-height:1.6}
         </div>
       </div>
       <button class="btn btn-primary btn-lg" onclick="saveConfig()">설정 저장 후 STEP 1 시작하기 →</button>
+      <button class="btn btn-danger btn-sm" onclick="clearState()" style="margin-left:8px">🗑 저장 데이터 초기화</button>
       <div id="config-alert" style="margin-top:12px"></div>
     </div>
 
@@ -736,6 +737,7 @@ function saveConfig() {
   if(!geminiKey) { alertEl.innerHTML='<div class="alert alert-error">❌ Gemini API 키를 입력해주세요.</div>'; return; }
   config = {ingredient, keyword, colorNum: selectedColor, geminiKey};
   alertEl.innerHTML='<div class="alert alert-success">✅ 설정 저장 완료! STEP 1로 이동해요.</div>';
+  saveState();
   STEPS.forEach(s => {
     const info = document.getElementById('info-'+s.id);
     const desc = document.getElementById('desc-'+s.id);
@@ -918,6 +920,7 @@ async function generateStep(stepId) {
     if(stepId === 'step9') {
       renderExtraInfoPanel();
     }
+    saveState();
   } catch(err) {
     resultEl.innerHTML = `<div class="alert alert-error">❌ 오류: ${err.message}<br>잠시 후 다시 시도해주세요.</div>`;
     progEl.style.width = '0%';
@@ -1047,6 +1050,7 @@ async function generateExtraInfo() {
     extraResults['step9'] = rawText.trim();
     renderExtraInfoPanel();
     showToast('✅ 부가 정보 생성 완료!');
+    saveState();
   } catch(err) {
     if(empty) { empty.className = 'alert alert-error'; empty.textContent = '❌ 오류: ' + err.message; empty.style.display = 'block'; }
   }
@@ -1239,6 +1243,7 @@ function saveEdit() {
   refreshPreview(currentEditStep);
   closeModal('edit');
   showToast('✅ 수정 내용이 저장되고 미리보기에 반영됐어요!');
+  saveState();
 }
 
 // ============================================================
@@ -1758,10 +1763,85 @@ function esc4attr(str){return str.replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function escHtml(str){return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ============================================================
+// PERSIST STATE (localStorage)
+// ============================================================
+const STORAGE_KEY = 'blog_gen_state_v1';
+
+function saveState() {
+  try {
+    const state = {
+      config,
+      selectedColor,
+      results,
+      htmlResults,
+      extraResults
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch(e) { /* 저장 실패 무시 */ }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return false;
+    const state = JSON.parse(raw);
+    if(!state.config || !state.config.ingredient) return false;
+
+    config = state.config;
+    selectedColor = state.selectedColor || 2;
+    results = state.results || {};
+    htmlResults = state.htmlResults || {};
+    extraResults = state.extraResults || {};
+    return true;
+  } catch(e) { return false; }
+}
+
+function restoreUI() {
+  // 설정 입력값 복원
+  if(config.geminiKey) document.getElementById('gemini-api-key').value = config.geminiKey;
+  if(config.ingredient) document.getElementById('ingredient').value = config.ingredient;
+  if(config.keyword) document.getElementById('keyword').value = config.keyword;
+  selectColor(selectedColor);
+
+  // 스텝 info bar / desc 복원
+  STEPS.forEach(s => {
+    const info = document.getElementById('info-'+s.id);
+    const desc = document.getElementById('desc-'+s.id);
+    if(info) { info.innerHTML=`📌 재료명: <strong>${config.ingredient}</strong> &nbsp;|&nbsp; 🔑 키워드: <strong>${config.keyword}</strong> &nbsp;|&nbsp; 🎨 컬러: <strong>${COLORS[selectedColor].name}</strong>`; info.style.display='block'; }
+    if(desc) desc.textContent=`${config.ingredient}에 대한 ${s.title} 섹션을 AI로 생성해요.`;
+  });
+
+  // 각 스텝 결과 복원
+  STEPS.forEach(s => {
+    if(htmlResults[s.id]) {
+      renderResult(s.id, results[s.id]||'', htmlResults[s.id]);
+      markSidebarDone(s.id);
+    }
+  });
+
+  // 부가 정보 복원
+  if(extraResults['step9']) renderExtraInfoPanel();
+
+  showToast('✅ 이전 작업 내용을 불러왔어요!');
+}
+
+function clearState() {
+  if(!confirm('저장된 작업 내용을 모두 삭제하고 처음부터 시작할까요?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+}
+
+// ============================================================
 // INIT
 // ============================================================
 initStepPanels();
 updateCompileChecklist();
+
+// 저장된 상태 복원
+if(loadState()) {
+  restoreUI();
+  updateCompileChecklist();
+}
 </script>
 </body>
 </html>
